@@ -14,16 +14,17 @@ system choices and the commands used to boot each one.
   Syntax section for details.
 
 * Test the configuration. In SmartFirmware, type:
-
+```
   boot hd:<your-partition-number> bootmenu
-
-* If you're not satisfied with the results, go to 2)
+```
+* If you're not satisfied with the results, edit the configuration 
+  and test again
 
 * In SmartFirmware, type:
-
+```
   setenv boot-device hd:<your-partition-number>
   setenv boot-file bootmenu
-
+```
 * Enjoy!
 
 
