@@ -1,0 +1,165 @@
+\ $Id: bootmenu 5 2005-02-03 03:10:28Z jacereda $
+\
+\ Copyright (c) 2005 Jorge Acereda Macia <jacereda@users.sourceforge.net>
+\ 
+\ Permission is hereby granted, free of charge, to any person obtaining
+\ a copy of this software and associated documentation files (the
+\ "Software"), to deal in the Software without restriction, including
+\ without limitation the rights to use, copy, modify, merge, publish,
+\ distribute, sublicense, and/or sell copies of the Software, and to
+\ permit persons to whom the Software is furnished to do so, subject to
+\ the following conditions:
+\ 
+\ The above copyright notice and this permission notice shall be
+\ included in all copies or substantial portions of the Software.
+\ 
+\ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+\ EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+\ MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+\ NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+\ LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+\ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+\ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+forth
+
+\ Detect if we are in gforth, SmartFirmware starts in HEX
+base @ decimal 10 = constant gforth?
+: hacks
+   gforth? if
+      s" create load-base 8192 allot" evaluate
+      s" 0 value lines/page" evaluate 
+      s" : $load included ;" evaluate
+   then ;  hacks
+
+32 constant max-options
+
+\ options arrays
+: array ( ncells <name> -- , create array of cells)
+   cells create here over allot swap erase 
+does>
+   swap cells + ;
+
+max-options array lab
+max-options array cmd
+
+\ number of options, will increase as we define them
+0 value #options
+
+0 value selected  \ selected option
+0 value oselected \ previous selection
+
+\ For handling timeout
+-1 value remaining  \ remaining time
+-2 value oseconds   \ previous remaining time
+-1 value ttimeout   \ text timeout index
+-1 value btimeout   \ bar timeout index
+
+\ Terminal handling
+: esc 27 emit [char] [ emit ;
+: white esc ." 38m" ;
+: plain esc ." 00m" ;
+: home esc ." H" ;
+: ceos esc ." J" ;
+: page home ceos ;
+
+
+: s, ( addr len -- , compile counted string)
+   dup c, here over allot swap move ;
+: str ( <string><eol> -- addr , parse and compile counted string )
+   here 10 parse s, ;
+: next ( -- , change to next option slot )
+   #options 1+ to #options ;
+: bar ( n -- , draw bar of length n)
+   0 ?do [char] # emit loop ;
+: timeout? ( index -- flag, is a timeout index?)
+   dup ttimeout = swap btimeout = or ;
+: expired? ( index -- flag, is this an expired index?)
+   timeout? remaining 0< and ;
+: seconds ( -- n, remaining seconds)
+   remaining 99 + 100 / ;
+: .label ( index -- , print label)
+   dup expired? if cr drop exit then
+   dup selected = if white ." >> " else ."    " then  
+   dup ttimeout = if seconds . then
+   dup lab @ count type
+   dup btimeout = if seconds bar then
+   cr drop ;
+: .labels ( -- , print all labels)
+   #options 0 ?do  plain  i .label  loop ;
+: select ( -- , evaluate selected option)
+   selected cmd @ count evaluate ;
+: circular ( index1 -- index2, wrap index)
+   s>d #options fm/mod drop ;
+: +option ( inc -- , move cursor up or down)
+   dup selected + circular to selected 
+   selected cmd @ if drop else recurse then ;
+: up ( -- , move cursor up)
+   -1 +option ;
+: down ( -- , move cursor down)
+   1 +option ;
+: under+ ( n1 nd x -- n3 x )
+   rot + swap ;
+: /string  ( c-addr1 u1 n -- c-addr2 u2 )
+   >r r@ under+ r> - ;
+: date ( -- addr len )
+   s" $Date: 2005-02-03 04:10:28 +0100 (Thu, 03 Feb 2005) $" 
+   7 /string drop 10 ;
+: revision ( -- addr len )
+   s" $Rev: 5 $" 6 /string 1- ;
+: .copyright ( -- )
+   ." OFBootMenu Rev. " revision type ." - " date type cr
+   ." (c) 2005 Jorge Acereda Macia <jacereda@users.sourceforge.net>" cr ;
+: changed? ( -- flag, true if display needs redraw)
+   selected oselected =   seconds oseconds =  and 0=
+   selected to oselected  seconds to oseconds ;
+: draw ( -- , draw screen)
+   page  .copyright cr  .labels cr ;
+: timedkey ( -- key )
+   10 ms  key? if -1 to remaining  key exit then
+   remaining 0= if 13 exit then
+   remaining dup 0 > + to remaining  0 ;
+: run ( -- , handle keypress)
+   timedkey case 
+      [char] 8 of up endof
+      [char] 2 of down endof
+      10 of select endof
+      13 of select endof
+      14 of down endof
+      16 of up endof
+      32 of select endof
+   endcase ;
+
+: (timeout)
+   bl parse evaluate 100 * to remaining ;
+
+\ User commands
+: print ( <string><eol> -- , set label for entry)
+   next  str  #options 1- lab ! ;
+: command ( <string><eol> -- , set command for entry)
+   str  #options 1- cmd ! ;
+: exitmenu ( -- )
+   ." Type 'bootmenu' to return" cr quit ;
+: bootmenu ( -- )
+   10000 to lines/page \ Avoid the fucking "more?" requester
+   -1 to oselected \ force redraw if returning from OF
+   begin  run  changed? if draw then  again ;
+: timeout ( <seconds> <string> -- , set timeout value)
+   (timeout) print  #options 1- to ttimeout ;
+: bartimeout ( <seconds> string -- , set timeout value for bar)
+   (timeout) print  #options 1- to btimeout ;
+: default
+   #options 1- to selected ;
+
+\ Dirty hack, can't find a simpler way to INCLUDE in SmartFirmware
+: 0count ( addr -- addr len )
+   dup begin dup c@ while 1+ repeat over - ;
+: hackish-included ( addr len -- )
+   load-base 8192 erase   $load   load-base 0count evaluate ;
+
+\ Load config file
+: loadit s" bootmenu.conf" hackish-included ; loadit
+
+\ Go
+bootmenu
